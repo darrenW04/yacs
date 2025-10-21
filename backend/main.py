@@ -20,6 +20,15 @@ async def root():
     """Confirms the API is running."""
     return {"message": "YACS API is Up!"}
 
+@app.get('/api')
+def apiroot():
+    return Response(content='Testing this get function')
+
+
+@app.get('/getsession')
+def apiroot():
+    return Response(content='Testing this get function')
+
 ## User Account Management ##
 @app.post('/api/user')
 async def add_user(user: UserPydantic):
