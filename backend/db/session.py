@@ -1,24 +1,60 @@
-from sqlalchemy.orm import Session
 from datetime import datetime
-from db.model import UserSession # Import the data model
+from db.model import * # Assuming this is your base model with self.db
+import uuid
 
-def create_session(db: Session, user_id: int) -> UserSession:
-    """Creates and saves a new user session."""
-    new_session = UserSession(user_id=user_id, start_time=datetime.utcnow())
-    db.add(new_session)
-    db.commit()
-    db.refresh(new_session)
-    return new_session
+class Session(Model):
+    # The __init__ is not needed if it only calls super()
 
-def get_session(db: Session, session_id: str) -> UserSession | None:
-    """Gets a session by its ID."""
-    return db.query(UserSession).filter(UserSession.session_id == session_id).first()
+    @staticmethod
+    def _create_session_id() -> str:
+        """
+        Generates a secure, random UUID (version 4).
+        Made static as it doesn't use 'self'.
+        """
+        return str(uuid.uuid4())
 
-def end_session(db: Session, session_id: str) -> UserSession | None:
-    """Finds a session and sets its end time."""
-    session_to_end = get_session(db, session_id)
-    if session_to_end:
-        session_to_end.end_time = datetime.utcnow()
-        db.commit()
-        db.refresh(session_to_end)
-    return session_to_end
+    def start_session(self, user_id: int):
+        """
+        Starts a new session for a user.
+        Generates its own session_id and start_time.
+        """
+        session_id = self._create_session_id()
+        start_time = datetime.utcnow()
+        
+        sql = """INSERT INTO public.user_session (session_id, user_id, start_time) 
+                 VALUES (%s, %s, %s)
+                 RETURNING session_id;""" # Return the new ID
+        args = (session_id, user_id, start_time)
+        
+        # Assumes db.execute returns a list of results
+        result = self.db.execute(sql, args, is_select=True)
+        return result[0]['session_id'] if result else None
+
+    def get_session(self, session_id: str):
+        """
+        Gets a specific session using an exact '=' match.
+        The session_id is now a required argument.
+        """
+        sql = """SELECT session_id, user_id, start_time, end_time 
+                 FROM public.user_session
+                 WHERE session_id = %s;"""
+        args = (session_id,)
+        
+        result = self.db.execute(sql, args, is_select=True)
+        return result[0] if result else None
+
+    def end_session(self, session_id: str):
+        """
+        Ends a specific session using an exact '=' match.
+        The session_id is required, preventing mass updates.
+        """
+        # Fixes the mutable default by getting the time *inside* the function.
+        end_time = datetime.utcnow()
+
+        sql = """UPDATE public.user_session 
+                 SET end_time = %s 
+                 WHERE session_id = %s;"""
+        args = (end_time, session_id)
+        
+        # Assuming db.execute returns a status or row count for non-select queries
+        return self.db.execute(sql, args, is_select=False)

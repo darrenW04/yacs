@@ -1,84 +1,66 @@
-def log_user_in(credentials: dict, session: dict):
-    """Placeholder logic to log a user in and update the session."""
-    # Here, you would check the username and password against the database.
-    if credentials['password'] == "test_password":
-        # On successful login, store user info in the session.
-        user_info = {'user_id': 1, 'username': credentials['username']}
-        session['user'] = user_info
-        return {"success": True, "message": "Login successful."}
-    else:
-        return {"success": False, "message": "Invalid credentials."}
+from fastapi import HTTPException
+from db.session import Session as SessionModel
+from db.user import User as UserModel
+from common import verify_password  # <-- Import the SECURE verification function
+from api_models import SessionCreate, SessionDelete # <-- Import Pydantic models
 
-def log_user_out(session: dict):
-    """Logs a user out by clearing their session data."""
-    if 'user' in session:
-        session.pop('user', None)
-        return {"success": True, "message": "Logout successful."}
-    return {"success": False, "message": "No active session."}
+# --- Instantiate models ONCE at the module level ---
+sessions = SessionModel()
+users = UserModel()
 
-# from common import *
-# from db.session import Session as SessionModel
-# from db.user import User as UserModel
-# from datetime import datetime
-# import view.message as msg
+def add_session(credentials: SessionCreate):
+    """
+    Logs a user in by verifying their email and password.
+    Creates a new session if successful.
+    """
+    # 1. Get user by email ONLY
+    user_list = users.get_user(email=credentials.email, enable=True)
+    
+    # Use a generic error for security (don't tell attacker if email or pass was wrong)
+    if not user_list:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
 
+    user_data = user_list[0]
+    stored_hash = user_data['password']
 
-# def delete_session(form):
-#     if not assert_keys_in_form_exist(form, ['sessionID']):
-#         return msg.error_msg("Please check your request body.")
+    # 2. Securely verify the password against the hash
+    if not verify_password(credentials.password, stored_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
 
-#     sessions = SessionModel()
+    # 3. If password is correct, create a session
+    # We use the optimized start_session that only needs a user_id
+    uid = user_data['user_id']
+    session = sessions.start_session(uid) # Assumes start_session returns the new session dict
 
-#     given_session_id = form['sessionID']
+    if not session:
+        raise HTTPException(status_code=500, detail="Failed to start a new session.")
 
-#     session_founded = sessions.get_session(session_id=given_session_id)
+    # 4. Return the success data
+    return {
+        "sessionID": session['session_id'], 
+        "uid": uid, 
+        "startTime": str(session['start_time']),
+        "userName" : user_data['name']
+    }
 
-#     if session_founded is None:
-#         return msg.error_msg("Failed to find given session")
+def delete_session(session_data: SessionDelete):
+    """
+    Logs a user out by ending their session.
+    """
+    given_session_id = session_data.sessionID
 
-#     if len(session_founded) == 0:
-#         return msg.error_msg("Can't found the session.")
+    # 1. Check if the session exists
+    session_found = sessions.get_session(session_id=given_session_id)
+    if not session_found:
+        raise HTTPException(status_code=404, detail="Session not found.")
 
-#     if session_founded[0]['end_time'] is not None:
-#         return msg.error_msg("This session already canceled.")
+    # 2. Check if it's already logged out
+    if session_found['end_time'] is not None:
+        raise HTTPException(status_code=400, detail="This session is already expired.")
 
-#     end_time = datetime.utcnow()
+    # 3. End the session (using the optimized method)
+    res = sessions.end_session(session_id=given_session_id)
+    if res is None:
+        raise HTTPException(status_code=500, detail="Failed to end this session.")
 
-#     res = sessions.end_session(session_id=given_session_id, end_time=end_time)
-#     if res is None:
-#         return msg.error_msg("Failed to end this session.")
-
-#     return msg.success_msg({"sessionID": given_session_id, "endTime": str(end_time)})
-
-
-# def add_session(form):
-#     if not assert_keys_in_form_exist(form, ['email', 'password']):
-#         return msg.error_msg("Please check the inputs.")
-
-#     sessions = SessionModel()
-#     users = UserModel()
-
-#     (email, password) = (form['email'], form['password'])
-
-#     users_founded = users.get_user(email=email, password=encrypt(password), enable=True)
-#     if users_founded == None:
-#         return msg.error_msg("Failed to validate user information.")
-
-#     if len(users_founded) == 0:
-#         return msg.error_msg("Invalid email address or password.")
-
-#     uid = users_founded[0]['user_id']
-#     new_session_id = sessions.create_session_id()
-#     start_time = datetime.utcnow()
-
-#     res = sessions.start_session(new_session_id, uid, start_time)
-
-#     if res == None:
-#         return msg.error_msg("Failed to start a new session.")
-
-#     return msg.success_msg({
-#         "sessionID": new_session_id, 
-#         "uid": uid, 
-#         "startTime": str(start_time),
-#         "userName" : users_founded[0]['name']
-#         })
+    return {"status": "success", "sessionID": given_session_id}
