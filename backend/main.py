@@ -4,9 +4,8 @@ from starlette.middleware.sessions import SessionMiddleware
 import os
 
 # Import Pydantic models and controllers
-from api_models import UserPydantic, SessionPydantic
+from api_models import UserPydantic, SessionPydantic, SessionCreate, SessionDelete
 from controllers import user_controller, session_controller
-
 # --- Initialize FastAPI App ---
 app = FastAPI()
 
@@ -41,14 +40,17 @@ async def delete_user(request: Request):
     user_id = request.session['user']['user_id']
     return user_controller.delete_current_user(user_id)
 
-## Session Management (Login/Logout) ##
+
 @app.post('/api/session')
-async def log_in(request: Request, credentials: SessionPydantic):
-    return session_controller.log_user_in(credentials.dict(), request.session)
+async def log_in(credentials: SessionCreate):
+    # Pydantic validates the request body matches SessionCreate
+    # If not, it returns a 422 error automatically
+    return session_controller.add_session(credentials)
 
 @app.delete('/api/session')
-def log_out(request: Request):
-    return session_controller.log_user_out(request.session)
+def log_out(session_data: SessionDelete):
+    return session_controller.delete_session(session_data)
+
 
 # --- Add your Course, Professor, and other endpoints below ---
 # Example:

@@ -1,6 +1,5 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
-
 
 class SessionPydantic(BaseModel):
     email: str
@@ -47,4 +46,9 @@ class DefaultSemesterSetPydantic(BaseModel):
     default: str
 
 
-    
+class SessionCreate(BaseModel):
+    email: EmailStr  # Pydantic validates this is a real email format
+    password: str
+
+class SessionDelete(BaseModel):
+    sessionID: str
